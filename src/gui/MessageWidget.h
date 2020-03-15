@@ -36,6 +36,8 @@ public:
     static const int LongAutoHideTimeout;
     static const int DisableAutoHide;
 
+    void setAnimate(bool state);
+
 signals:
     void showAnimationStarted();
 
@@ -49,6 +51,7 @@ public slots:
 private:
     QTimer* m_autoHideTimer;
     int m_autoHideTimeout;
+    bool m_animate;
 };
 
 #endif // MESSAGEWIDGET_H
