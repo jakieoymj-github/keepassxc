@@ -1,6 +1,11 @@
-QPushButton:default {
+QPushButton:default, QDialog QPushButton:default {
     background: palette(highlight);
     color: palette(highlighted-text);
+}
+
+QPushButton:focus:!default, QDialog QPushButton:focus:!default {
+    background: palette(button);
+    color: palette(button-text);
 }
 
 QSpinBox {
