@@ -31,14 +31,11 @@ class YkChallengeResponseKey : public QObject, public ChallengeResponseKey
 public:
     static QUuid UUID;
 
-    explicit YkChallengeResponseKey(int slot = -1, bool blocking = false);
+    explicit YkChallengeResponseKey(YubiKeySlot keySlot = {});
     ~YkChallengeResponseKey() override;
 
     QByteArray rawKey() const override;
     bool challenge(const QByteArray& challenge) override;
-    bool challenge(const QByteArray& challenge, unsigned int retries);
-    QString getName() const;
-    bool isBlocking() const;
 
 signals:
     /**
@@ -55,8 +52,7 @@ signals:
 private:
     char* m_key = nullptr;
     std::size_t m_keySize = 0;
-    int m_slot;
-    bool m_blocking;
+    YubiKeySlot m_keySlot;
 };
 
 #endif // KEEPASSX_YK_CHALLENGERESPONSEKEY_H

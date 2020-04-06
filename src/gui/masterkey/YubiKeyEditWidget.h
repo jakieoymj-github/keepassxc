@@ -45,9 +45,7 @@ protected:
     void initComponentEditWidget(QWidget* widget) override;
 
 private slots:
-    void yubikeyDetected(int slot, bool blocking);
-    void yubikeyDetectComplete();
-    void noYubikeyFound();
+    void hardwareKeyResponse(bool found);
     void pollYubikey();
 
 private:

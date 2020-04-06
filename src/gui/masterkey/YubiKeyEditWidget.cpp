@@ -36,6 +36,8 @@ YubiKeyEditWidget::YubiKeyEditWidget(QWidget* parent)
            "for additional security.</p><p>The YubiKey requires one of its slots to be programmed as "
            "<a href=\"https://www.yubico.com/products/services-software/personalization-tools/challenge-response/\">"
            "HMAC-SHA1 Challenge-Response</a>.</p>"));
+
+    connect(YubiKey::instance(), SIGNAL(detectComplete(bool)), SLOT(hardwareKeyResponse(bool)), Qt::QueuedConnection);
 }
 
 YubiKeyEditWidget::~YubiKeyEditWidget()
@@ -73,15 +75,19 @@ QWidget* YubiKeyEditWidget::componentEditWidget()
     sp.setRetainSizeWhenHidden(true);
     m_compUi->yubikeyProgress->setSizePolicy(sp);
     m_compUi->yubikeyProgress->setVisible(false);
+    m_compUi->messageWidget->hide();
 
 #ifdef WITH_XC_YUBIKEY
     connect(m_compUi->buttonRedetectYubikey, SIGNAL(clicked()), SLOT(pollYubikey()));
-
-    // clang-format off
-    connect(YubiKey::instance(), SIGNAL(detected(int,bool)), SLOT(yubikeyDetected(int,bool)), Qt::QueuedConnection);
-    connect(YubiKey::instance(), SIGNAL(detectComplete()), SLOT(yubikeyDetectComplete()), Qt::QueuedConnection);
-    connect(YubiKey::instance(), SIGNAL(notFound()), SLOT(noYubikeyFound()), Qt::QueuedConnection);
-    // clang-format on
+    connect(YubiKey::instance(), &YubiKey::userInteractionRequest, [this] {
+        // Show the press notification if we are in an independent window (e.g., New DB Wizard)
+        if (window() != getMainWindow()) {
+            m_compUi->messageWidget->showMessage(tr("Please touch the button on your YubiKey!"),
+                                                 MessageWidget::Information,
+                                                 MessageWidget::DisableAutoHide);
+        }
+    });
+    connect(YubiKey::instance(), &YubiKey::challengeCompleted, [this] { m_compUi->messageWidget->hide(); });
 
     pollYubikey();
 #endif
@@ -105,51 +111,39 @@ void YubiKeyEditWidget::pollYubikey()
 
     m_isDetected = false;
     m_compUi->comboChallengeResponse->clear();
+    m_compUi->comboChallengeResponse->addItem(tr("Detecting Hardware Keys..."));
     m_compUi->buttonRedetectYubikey->setEnabled(false);
     m_compUi->comboChallengeResponse->setEnabled(false);
     m_compUi->yubikeyProgress->setVisible(true);
 
-    // YubiKey init is slow, detect asynchronously to not block the UI
-    QtConcurrent::run(YubiKey::instance(), &YubiKey::detect);
+    YubiKey::instance()->findValidKeys();
 #endif
 }
 
-void YubiKeyEditWidget::yubikeyDetected(int slot, bool blocking)
+void YubiKeyEditWidget::hardwareKeyResponse(bool found)
 {
-#ifdef WITH_XC_YUBIKEY
     if (!m_compEditWidget) {
         return;
     }
-    YkChallengeResponseKey yk(slot, blocking);
-    // add detected YubiKey to combo box and encode blocking mode in LSB, slot number in second LSB
-    m_compUi->comboChallengeResponse->addItem(yk.getName(), QVariant((slot << 1u) | blocking));
-    m_isDetected = true;
-#else
-    Q_UNUSED(slot);
-    Q_UNUSED(blocking);
-#endif
-}
 
-void YubiKeyEditWidget::yubikeyDetectComplete()
-{
-    m_compUi->comboChallengeResponse->setEnabled(true);
-    m_compUi->buttonRedetectYubikey->setEnabled(true);
-    m_compUi->yubikeyProgress->setVisible(false);
-}
-
-void YubiKeyEditWidget::noYubikeyFound()
-{
-#ifdef WITH_XC_YUBIKEY
-    if (!m_compEditWidget) {
-        return;
-    }
     m_compUi->comboChallengeResponse->clear();
-    m_compUi->comboChallengeResponse->setEnabled(false);
-    m_compUi->comboChallengeResponse->addItem(tr("No YubiKey inserted."));
     m_compUi->buttonRedetectYubikey->setEnabled(true);
     m_compUi->yubikeyProgress->setVisible(false);
-    m_isDetected = false;
-#endif
+
+    if (!found) {
+        m_compUi->comboChallengeResponse->addItem(tr("No Hardware Keys Detected"));
+        m_isDetected = false;
+        return;
+    }
+
+    for (auto& slot : YubiKey::instance()->foundKeys()) {
+        // add detected YubiKey to combo box and encode blocking mode in LSB, slot number in second LSB
+        m_compUi->comboChallengeResponse->addItem(YubiKey::instance()->getDisplayName(slot),
+                                                  QVariant::fromValue(slot));
+    }
+
+    m_isDetected = true;
+    m_compUi->comboChallengeResponse->setEnabled(true);
 }
 
 bool YubiKeyEditWidget::createCrKey(QSharedPointer<YkChallengeResponseKey>& key, bool testChallenge) const
@@ -160,15 +154,8 @@ bool YubiKeyEditWidget::createCrKey(QSharedPointer<YkChallengeResponseKey>& key,
     }
 
     int selectionIndex = m_compUi->comboChallengeResponse->currentIndex();
-    int comboPayload = m_compUi->comboChallengeResponse->itemData(selectionIndex).toInt();
-
-    if (0 == comboPayload) {
-        return false;
-    }
-
-    auto blocking = static_cast<bool>(comboPayload & 1u);
-    int slot = comboPayload >> 1u;
-    key.reset(new YkChallengeResponseKey(slot, blocking));
+    auto slot = m_compUi->comboChallengeResponse->itemData(selectionIndex).value<YubiKeySlot>();
+    key.reset(new YkChallengeResponseKey(slot));
     if (testChallenge) {
         return key->challenge(QByteArray("0000"));
     }
